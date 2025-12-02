@@ -17,11 +17,18 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-# Check if Podkop is installed
-if ! opkg list-installed | grep -q "^luci-app-podkop "; then
-    echo "Error: luci-app-podkop is not installed"
-    echo "Please install Podkop first: opkg install luci-app-podkop"
+# Check if Podkop is installed (check for either podkop or luci-app-podkop)
+if ! opkg list-installed | grep -qE "^(podkop|luci-app-podkop) "; then
+    echo "Error: Podkop is not installed"
+    echo "Please install Podkop first: opkg install podkop"
     exit 1
+fi
+
+# Check if section.js exists or can be found
+if [ ! -f /www/luci-static/resources/view/podkop/section.js ] && [ ! -f /overlay/upper/www/luci-static/resources/view/podkop/section.js ]; then
+    echo "Warning: Podkop LuCI interface file not found"
+    echo "The plugin will create section.js, but Podkop LuCI interface may not work correctly"
+    echo "Please ensure Podkop LuCI interface is properly installed"
 fi
 
 # Check if wget is installed
@@ -40,11 +47,35 @@ mkdir -p /www/luci-static/resources/view/podkop
 mkdir -p /usr/share/rpcd/acl.d
 
 echo "Step 2: Backing up original Podkop files..."
-if [ -f /www/luci-static/resources/view/podkop/section.js ] && [ ! -f /www/luci-static/resources/view/podkop/section.js.backup ]; then
-    cp /www/luci-static/resources/view/podkop/section.js /www/luci-static/resources/view/podkop/section.js.backup
-    echo "  ✓ Backup created: section.js.backup"
-elif [ -f /www/luci-static/resources/view/podkop/section.js.backup ]; then
-    echo "  ✓ Backup already exists"
+if [ -f /www/luci-static/resources/view/podkop/section.js ]; then
+    # Check if current file contains plugin code
+    if grep -q "podkop-subscribe-config-list\|podkop-subscribe-loading\|podkop-subscribe-url" /www/luci-static/resources/view/podkop/section.js 2>/dev/null; then
+        echo "  ℹ Current file contains plugin code (reinstalling plugin)"
+        # Try to find original file to backup
+        if [ -f /overlay/upper/www/luci-static/resources/view/podkop/section.js ]; then
+            if ! grep -q "podkop-subscribe-config-list\|podkop-subscribe-loading\|podkop-subscribe-url" /overlay/upper/www/luci-static/resources/view/podkop/section.js 2>/dev/null; then
+                cp /overlay/upper/www/luci-static/resources/view/podkop/section.js /www/luci-static/resources/view/podkop/section.js.backup
+                echo "  ✓ Backup created from overlay: section.js.backup"
+            fi
+        fi
+    else
+        # Current file is original, create backup
+        if [ ! -f /www/luci-static/resources/view/podkop/section.js.backup ]; then
+            cp /www/luci-static/resources/view/podkop/section.js /www/luci-static/resources/view/podkop/section.js.backup
+            echo "  ✓ Backup created: section.js.backup"
+        else
+            echo "  ✓ Backup already exists"
+        fi
+    fi
+else
+    echo "  ⚠ Warning: section.js not found, will be created by plugin installation"
+    # Try to find original file to backup
+    if [ -f /overlay/upper/www/luci-static/resources/view/podkop/section.js ]; then
+        if ! grep -q "podkop-subscribe-config-list\|podkop-subscribe-loading\|podkop-subscribe-url" /overlay/upper/www/luci-static/resources/view/podkop/section.js 2>/dev/null; then
+            cp /overlay/upper/www/luci-static/resources/view/podkop/section.js /www/luci-static/resources/view/podkop/section.js.backup
+            echo "  ✓ Backup created from overlay: section.js.backup"
+        fi
+    fi
 fi
 
 echo "Step 3: Downloading and installing plugin files..."
