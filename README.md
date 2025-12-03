@@ -1,6 +1,6 @@
 # luci-app-podkop-subscribe
 
-![luci-app-podkop-subscribe](img.png)
+![luci-podkop-subscribe](img.png)
 
 Расширение LuCI для Podkop, добавляющее функциональность Subscribe URL для получения и управления конфигурациями прокси VLESS.
 
@@ -32,8 +32,8 @@
 
 ## Протестировано на
 
-- **Podkop**: v0.7.9
-- **LuCI App**: v0.7.9
+- **Podkop**: v0.7.9 - v0.7.10
+- **LuCI App**: v0.7.9 - v0.7.10
 - **OpenWrt**: 24.10.4
 
 ## Установка
