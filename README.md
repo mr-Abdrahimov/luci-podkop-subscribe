@@ -1,4 +1,4 @@
-# luci-app-podkop-subscribe
+# luci-podkop-subscribe
 
 ![luci-podkop-subscribe](img.png)
 
