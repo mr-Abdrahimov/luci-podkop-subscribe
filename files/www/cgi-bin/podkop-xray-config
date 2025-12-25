@@ -139,15 +139,13 @@ for param in $params; do
             ;;
         path)
             ws_path="$value"
-            if [ "$network" = "xhttp" ]; then
-                xhttp_path="$value"
-            fi
+            # For xhttp, we need to set xhttp_path separately
+            # We'll handle it after we know the network type
             ;;
         host)
             ws_host="$value"
-            if [ "$network" = "xhttp" ]; then
-                xhttp_host="$value"
-            fi
+            # For xhttp, we need to set xhttp_host separately
+            # We'll handle it after we know the network type
             ;;
         mode)
             xhttp_mode="$value"
@@ -159,8 +157,17 @@ for param in $params; do
 done
 unset IFS
 
-# Set defaults for xhttp
+# After parsing all parameters, set xhttp specific values
 if [ "$network" = "xhttp" ]; then
+    # Use path parameter for xhttp_path if network is xhttp
+    if [ -n "$ws_path" ]; then
+        xhttp_path="$ws_path"
+    fi
+    # Use host parameter for xhttp_host if network is xhttp
+    if [ -n "$ws_host" ]; then
+        xhttp_host="$ws_host"
+    fi
+    # Set defaults only if values are not set
     if [ -z "$xhttp_host" ]; then
         xhttp_host="$host"
     fi
