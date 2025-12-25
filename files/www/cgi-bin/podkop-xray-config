@@ -1,0 +1,416 @@
+#!/bin/sh
+# Podkop Xray Config Generator
+# Parses vless URL and generates xray config.json
+
+. /usr/share/libubox/jshn.sh
+
+XRAY_CONFIG="/etc/xray/config.json"
+
+# Set content type
+echo "Content-Type: application/json"
+echo ""
+
+# Read POST data (vless URL)
+read -r vless_url
+
+if [ -z "$vless_url" ]; then
+    json_init
+    json_add_string "error" "VLESS URL is required"
+    json_dump
+    exit 1
+fi
+
+# Parse vless URL
+# Format: vless://uuid@host:port?params#tag
+vless_url=$(echo "$vless_url" | sed 's/^vless:\/\///')
+
+# Extract UUID (before @)
+uuid=$(echo "$vless_url" | cut -d'@' -f1)
+
+# Validate UUID format (should be UUID v4 format: 8-4-4-4-12 hex characters)
+if [ -z "$uuid" ] || ! echo "$uuid" | grep -qE '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'; then
+    json_init
+    json_add_string "error" "Invalid UUID format: $uuid"
+    json_dump
+    exit 1
+fi
+
+# Extract everything after @
+after_at=$(echo "$vless_url" | cut -d'@' -f2-)
+
+if [ -z "$after_at" ]; then
+    json_init
+    json_add_string "error" "Invalid vless URL format: missing host:port"
+    json_dump
+    exit 1
+fi
+
+# Extract host:port (before ?)
+if echo "$after_at" | grep -q '?'; then
+    host_port=$(echo "$after_at" | cut -d'?' -f1)
+    params=$(echo "$after_at" | cut -d'?' -f2- | cut -d'#' -f1)
+    tag=$(echo "$after_at" | sed -n 's/.*#\(.*\)$/\1/p')
+else
+    host_port=$(echo "$after_at" | cut -d'#' -f1)
+    params=""
+    tag=$(echo "$after_at" | sed -n 's/.*#\(.*\)$/\1/p')
+fi
+
+# Extract host and port (handle both IPv4 and IPv6)
+if echo "$host_port" | grep -qE '^\[.*\]:[0-9]+$'; then
+    # IPv6 format: [2001:db8::1]:443
+    host=$(echo "$host_port" | sed 's/^\[\(.*\)\]:.*/\1/')
+    port=$(echo "$host_port" | sed 's/^\[.*\]:\(.*\)/\1/')
+elif echo "$host_port" | grep -q ':'; then
+    # IPv4 or hostname format: example.com:443 or 192.168.1.1:443
+    host=$(echo "$host_port" | sed 's/:.*$//')
+    port=$(echo "$host_port" | sed 's/^.*://')
+else
+    json_init
+    json_add_string "error" "Invalid host:port format"
+    json_dump
+    exit 1
+fi
+
+# Validate port is numeric
+if ! echo "$port" | grep -qE '^[0-9]+$'; then
+    json_init
+    json_add_string "error" "Invalid port format: $port"
+    json_dump
+    exit 1
+fi
+
+# Validate host is not empty
+if [ -z "$host" ]; then
+    json_init
+    json_add_string "error" "Invalid host format"
+    json_dump
+    exit 1
+fi
+
+# URL decode function
+urldecode() {
+    echo "$1" | sed 's/+/ /g; s/%\([0-9a-fA-F][0-9a-fA-F]\)/\\x\1/g' | xargs -0 printf '%b' 2>/dev/null || echo "$1"
+}
+
+# Parse parameters
+network="tcp"
+security="none"
+server_name=""
+fingerprint=""
+public_key=""
+short_id=""
+flow=""
+ws_path=""
+ws_host=""
+spider_x=""
+xhttp_host=""
+xhttp_path=""
+xhttp_mode=""
+
+IFS='&'
+for param in $params; do
+    key=$(echo "$param" | cut -d'=' -f1)
+    value=$(echo "$param" | cut -d'=' -f2-)
+    # URL decode value
+    value=$(urldecode "$value")
+    
+    case "$key" in
+        type)
+            network="$value"
+            ;;
+        security)
+            security="$value"
+            ;;
+        sni)
+            server_name="$value"
+            ;;
+        fp)
+            fingerprint="$value"
+            ;;
+        pbk)
+            public_key="$value"
+            ;;
+        sid)
+            short_id="$value"
+            ;;
+        flow)
+            flow="$value"
+            ;;
+        path)
+            ws_path="$value"
+            if [ "$network" = "xhttp" ]; then
+                xhttp_path="$value"
+            fi
+            ;;
+        host)
+            ws_host="$value"
+            if [ "$network" = "xhttp" ]; then
+                xhttp_host="$value"
+            fi
+            ;;
+        mode)
+            xhttp_mode="$value"
+            ;;
+        spx)
+            spider_x="$value"
+            ;;
+    esac
+done
+unset IFS
+
+# Set defaults for xhttp
+if [ "$network" = "xhttp" ]; then
+    if [ -z "$xhttp_host" ]; then
+        xhttp_host="$host"
+    fi
+    if [ -z "$xhttp_path" ]; then
+        xhttp_path="/"
+    fi
+    if [ -z "$xhttp_mode" ]; then
+        xhttp_mode="auto"
+    fi
+fi
+
+# Create temp file for JSON generation
+tmp_json="/tmp/xray_config_$$.json"
+
+# Build streamSettings JSON
+stream_settings_json="    \"network\": \"$network\""
+
+# Add WebSocket settings if network is ws
+if [ "$network" = "ws" ]; then
+    ws_settings=""
+    if [ -n "$ws_path" ]; then
+        ws_settings="      \"path\": \"$ws_path\""
+    fi
+    if [ -n "$ws_host" ]; then
+        if [ -n "$ws_settings" ]; then
+            ws_settings="$ws_settings,
+      \"headers\": {
+        \"Host\": \"$ws_host\"
+      }"
+        else
+            ws_settings="      \"headers\": {
+        \"Host\": \"$ws_host\"
+      }"
+        fi
+    fi
+    if [ -n "$ws_settings" ]; then
+        stream_settings_json="$stream_settings_json,
+    \"wsSettings\": {
+$ws_settings
+    }"
+    fi
+fi
+
+# Add xhttpSettings if network is xhttp
+if [ "$network" = "xhttp" ]; then
+    xhttp_settings=""
+    if [ -n "$xhttp_host" ]; then
+        xhttp_settings="      \"host\": \"$xhttp_host\""
+    fi
+    if [ -n "$xhttp_path" ]; then
+        if [ -n "$xhttp_settings" ]; then
+            xhttp_settings="$xhttp_settings,
+      \"path\": \"$xhttp_path\""
+        else
+            xhttp_settings="      \"path\": \"$xhttp_path\""
+        fi
+    fi
+    if [ -n "$xhttp_mode" ]; then
+        if [ -n "$xhttp_settings" ]; then
+            xhttp_settings="$xhttp_settings,
+      \"mode\": \"$xhttp_mode\""
+        else
+            xhttp_settings="      \"mode\": \"$xhttp_mode\""
+        fi
+    fi
+    if [ -n "$xhttp_settings" ]; then
+        stream_settings_json="$stream_settings_json,
+    \"xhttpSettings\": {
+$xhttp_settings
+    }"
+    fi
+fi
+
+if [ "$security" != "none" ]; then
+    stream_settings_json="$stream_settings_json,
+    \"security\": \"$security\""
+    if [ "$security" = "tls" ]; then
+        tls_settings=""
+        if [ -n "$server_name" ]; then
+            tls_settings="      \"serverName\": \"$server_name\""
+        fi
+        if [ -n "$fingerprint" ]; then
+            if [ -n "$tls_settings" ]; then
+                tls_settings="$tls_settings,
+      \"fingerprint\": \"$fingerprint\""
+            else
+                tls_settings="      \"fingerprint\": \"$fingerprint\""
+            fi
+        fi
+        if [ -n "$tls_settings" ]; then
+            stream_settings_json="$stream_settings_json,
+    \"tlsSettings\": {
+$tls_settings
+    }"
+        fi
+    elif [ "$security" = "reality" ]; then
+        # REALITY requires realitySettings with specific fields
+        reality_settings=""
+        if [ -n "$server_name" ]; then
+            reality_settings="      \"serverName\": \"$server_name\""
+        fi
+        if [ -n "$fingerprint" ]; then
+            if [ -n "$reality_settings" ]; then
+                reality_settings="$reality_settings,
+      \"fingerprint\": \"$fingerprint\""
+            else
+                reality_settings="      \"fingerprint\": \"$fingerprint\""
+            fi
+        fi
+        if [ -n "$public_key" ]; then
+            if [ -n "$reality_settings" ]; then
+                reality_settings="$reality_settings,
+      \"publicKey\": \"$public_key\""
+            else
+                reality_settings="      \"publicKey\": \"$public_key\""
+            fi
+        fi
+        if [ -n "$short_id" ]; then
+            if [ -n "$reality_settings" ]; then
+                reality_settings="$reality_settings,
+      \"shortId\": \"$short_id\""
+            else
+                reality_settings="      \"shortId\": \"$short_id\""
+            fi
+        fi
+        if [ -n "$spider_x" ]; then
+            if [ -n "$reality_settings" ]; then
+                reality_settings="$reality_settings,
+      \"spiderX\": \"$spider_x\""
+            else
+                reality_settings="      \"spiderX\": \"$spider_x\""
+            fi
+        fi
+        # REALITY requires at least publicKey, so only add if we have it
+        if [ -n "$public_key" ]; then
+            stream_settings_json="$stream_settings_json,
+    \"realitySettings\": {
+$reality_settings
+    }"
+        fi
+    fi
+fi
+
+# Build users JSON
+users_json="        \"id\": \"$uuid\",
+        \"encryption\": \"none\""
+if [ -n "$flow" ]; then
+    users_json="$users_json,
+        \"flow\": \"$flow\""
+fi
+
+# Build complete JSON
+cat > "$tmp_json" <<JSONEOF
+{
+  "log": {
+    "loglevel": "warning"
+  },
+  "inbounds": [
+    {
+      "tag": "socks-local",
+      "port": 10808,
+      "listen": "127.0.0.1",
+      "protocol": "socks",
+      "settings": {
+        "udp": true
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "tls",
+          "http",
+          "quic"
+        ]
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "proxy",
+      "protocol": "vless",
+      "settings": {
+        "vnext": [
+          {
+            "address": "$host",
+            "port": $port,
+            "users": [
+              {
+$users_json
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+$stream_settings_json
+      }
+    },
+    {
+      "tag": "direct",
+      "protocol": "freedom",
+      "settings": {}
+    },
+    {
+      "tag": "block",
+      "protocol": "blackhole",
+      "settings": {
+        "response": {
+          "type": "none"
+        }
+      }
+    }
+  ],
+  "routing": {
+    "rules": [
+      {
+        "type": "field",
+        "inboundTag": [
+          "socks-local"
+        ],
+        "outboundTag": "proxy"
+      }
+    ]
+  }
+}
+JSONEOF
+
+# Save to file
+if cp "$tmp_json" "$XRAY_CONFIG" 2>/dev/null; then
+    # Restart xray service
+    if /etc/init.d/xray restart >/dev/null 2>&1; then
+        json_init
+        json_add_string "status" "success"
+        json_add_string "message" "Xray configuration saved and service restarted"
+        json_dump
+        exit 0
+    else
+        json_init
+        json_add_string "status" "partial"
+        json_add_string "message" "Configuration saved but failed to restart xray service"
+        json_dump
+        exit 0
+    fi
+else
+    json_init
+    json_add_string "error" "Failed to write config file"
+    json_dump
+    rm -f "$tmp_json"
+    exit 1
+fi
+
+# Cleanup
+rm -f "$tmp_json"
+

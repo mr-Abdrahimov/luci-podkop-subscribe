@@ -95,6 +95,13 @@ wget -q -O /www/cgi-bin/podkop-subscribe-url "${BASE_URL}/www/cgi-bin/podkop-sub
 }
 chmod +x /www/cgi-bin/podkop-subscribe-url
 
+echo "  - Installing podkop-xray-config..."
+wget -q -O /www/cgi-bin/podkop-xray-config "${BASE_URL}/www/cgi-bin/podkop-xray-config" || {
+    echo "Error: Failed to download podkop-xray-config"
+    exit 1
+}
+chmod +x /www/cgi-bin/podkop-xray-config
+
 # Download JavaScript file
 echo "  - Installing section.js..."
 wget -q -O /www/luci-static/resources/view/podkop/section.js "${BASE_URL}/www/luci-static/resources/view/podkop/section.js" || {
@@ -122,8 +129,12 @@ echo "The plugin has been installed. Please:"
 echo "1. Clear your browser cache (Ctrl+F5)"
 echo "2. Navigate to: LuCI -> Services -> Podkop"
 echo "3. Set Connection Type to 'Proxy'"
-echo "4. Set Configuration Type to 'Connection URL'"
+echo "4. Set Configuration Type to 'Connection URL' or 'Outbound Config'"
 echo "5. You should see the Subscribe URL field"
+echo ""
+echo "Features:"
+echo "  - Connection URL mode: Get configurations and apply to Podkop proxy"
+echo "  - Outbound Config mode: Get configurations and apply directly to Xray"
 echo ""
 echo "To uninstall, run:"
 echo "  sh <(wget -O - ${REPO_URL}/uninstall.sh)"
