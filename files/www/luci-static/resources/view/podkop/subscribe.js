@@ -22,19 +22,21 @@ function injectSubscribeStyles() {
     }
     .podkop-subscribe-error {
       padding: 10px;
-      background: var(--error-color-low, #ffebee);
-      border: 1px solid var(--error-color-medium, #f44336);
+      background: #dc3545;
+      border: 1px solid #c82333;
       border-radius: 4px;
-      color: var(--error-color-medium, #c62828);
+      color: #ffffff;
+      font-weight: 500;
     }
     .podkop-subscribe-error-small {
       margin-top: 5px;
       padding: 5px;
-      background: var(--error-color-low, #ffebee);
-      border: 1px solid var(--error-color-medium, #f44336);
+      background: #dc3545;
+      border: 1px solid #c82333;
       border-radius: 4px;
-      color: var(--error-color-medium, #c62828);
+      color: #ffffff;
       font-size: 12px;
+      font-weight: 500;
     }
     .podkop-subscribe-success {
       margin-top: 5px;
@@ -145,9 +147,9 @@ function injectSubscribeStyles() {
       font-size: 10px;
       font-weight: 500;
       border-radius: 3px;
-      background: var(--error-color-low, #ffebee);
-      border: 1px solid var(--error-color-medium, #f44336);
-      color: var(--error-color-medium, #c62828);
+      background: #dc3545;
+      border: 1px solid #c82333;
+      color: #ffffff;
       text-transform: uppercase;
     }
     .podkop-subscribe-urltest-counter {
@@ -164,13 +166,70 @@ function injectSubscribeStyles() {
   document.head.appendChild(style);
 }
 
-// Hide config lists when connection type changes
-function hideConfigLists() {
-  // Find all config lists by ID prefix pattern
+// Remove config lists when connection type or proxy_config_type changes
+function removeConfigLists() {
+  // Find all config lists by ID prefix pattern and remove them from DOM
   var allLists = document.querySelectorAll('[id^="podkop-subscribe-config-list"]');
   allLists.forEach(function(list) {
-    list.style.display = "none";
+    if (list.parentNode) {
+      list.parentNode.removeChild(list);
+    }
   });
+  // Also remove loading indicators
+  var allLoading = document.querySelectorAll('[id^="podkop-subscribe-loading"]');
+  allLoading.forEach(function(loading) {
+    if (loading.parentNode) {
+      loading.parentNode.removeChild(loading);
+    }
+  });
+}
+
+// Extract section_id from element ID (e.g., "cbid.podkop.cfg123.proxy_config_type" -> "cfg123")
+function getSectionIdFromElement(el) {
+  if (!el || !el.id) return null;
+  var match = el.id.match(/podkop\.([^.]+)\./);
+  return match ? match[1] : null;
+}
+
+// Refetch configs for a section when proxy_config_type changes
+function refetchConfigsForSection(select) {
+  var section_id = getSectionIdFromElement(select);
+  if (!section_id) return;
+
+  var newType = select.value;
+
+  // Only refetch for url/urltest modes (not outbound - it has separate subscribe_url_outbound)
+  if (newType !== "url" && newType !== "urltest") {
+    removeConfigLists();
+    return;
+  }
+
+  // Find subscribe_url input for this section
+  var subscribeInput = document.querySelector(
+    'input[id*="' + section_id + '"][id*="subscribe_url"]'
+  );
+  if (!subscribeInput) {
+    subscribeInput = document.getElementById("widget.cbid.podkop." + section_id + ".subscribe_url");
+  }
+
+  var subscribeUrl = subscribeInput ? subscribeInput.value : "";
+
+  // Remove old lists first
+  removeConfigLists();
+
+  // If we have a URL, refetch with new mode
+  if (subscribeUrl && subscribeUrl.length > 0) {
+    var subscribeContainer = subscribeInput.closest(".cbi-value") ||
+                             subscribeInput.closest(".cbi-section") ||
+                             subscribeInput.parentElement;
+
+    var isUrltest = (newType === "urltest");
+    var listId = isUrltest
+      ? "podkop-subscribe-config-list-urltest-" + section_id
+      : "podkop-subscribe-config-list-" + section_id;
+
+    fetchConfigs(subscribeUrl, subscribeContainer, listId, false, section_id, isUrltest);
+  }
 }
 
 // Initialize change handlers for dropdowns
@@ -186,28 +245,26 @@ function initConfigListHandlers() {
 
   if (connectionTypeSelect && !connectionTypeSelect._podkopSubscribeHandler) {
     var handler = function () {
-      hideConfigLists();
+      removeConfigLists();
     };
     connectionTypeSelect.addEventListener("change", handler);
     connectionTypeSelect._podkopSubscribeHandler = handler;
   }
 
-  var proxyConfigTypeSelect = document.querySelector(
+  // Find ALL proxy_config_type selects (for multiple sections)
+  var proxyConfigTypeSelects = document.querySelectorAll(
     'select[id*="proxy_config_type"]'
   );
-  if (!proxyConfigTypeSelect) {
-    proxyConfigTypeSelect = document.querySelector(
-      'select[name*="proxy_config_type"]'
-    );
-  }
 
-  if (proxyConfigTypeSelect && !proxyConfigTypeSelect._podkopSubscribeHandler) {
-    var handler = function () {
-      hideConfigLists();
-    };
-    proxyConfigTypeSelect.addEventListener("change", handler);
-    proxyConfigTypeSelect._podkopSubscribeHandler = handler;
-  }
+  proxyConfigTypeSelects.forEach(function(select) {
+    if (!select._podkopSubscribeHandler) {
+      var handler = function () {
+        refetchConfigsForSection(select);
+      };
+      select.addEventListener("change", handler);
+      select._podkopSubscribeHandler = handler;
+    }
+  });
 }
 
 // Create error message element
@@ -441,7 +498,7 @@ function createConfigListUI(configs, listId, isOutbound, section_id, isUrltest) 
       var xhttpBadge = document.createElement("span");
       xhttpBadge.className = "podkop-subscribe-xhttp-badge";
       xhttpBadge.textContent = "XHTTP";
-      xhttpBadge.title = _("XHTTP не поддерживается в режиме Proxy");
+      xhttpBadge.title = _("XHTTP не поддерживается по умолчанию");
       configTitle.appendChild(xhttpBadge);
     }
 
@@ -474,7 +531,7 @@ function createUrlClickHandler(config, configItem, configList, section_id, isXht
 
     // Block xhttp configs
     if (isXhttp) {
-      var errorDiv = createErrorMessage(_("XHTTP не поддерживается в режиме Proxy"), true);
+      var errorDiv = createErrorMessage(_("XHTTP не поддерживается по умолчанию"), true);
       configItem.appendChild(errorDiv);
       setTimeout(function () {
         if (errorDiv.parentNode) {
@@ -524,7 +581,7 @@ function createUrltestClickHandler(config, configItem, configList, section_id, i
 
     // Block xhttp configs
     if (isXhttp) {
-      var errorDiv = createErrorMessage(_("XHTTP не поддерживается в режиме Proxy"), true);
+      var errorDiv = createErrorMessage(_("XHTTP не поддерживается по умолчанию"), true);
       configItem.appendChild(errorDiv);
       setTimeout(function () {
         if (errorDiv.parentNode) {
