@@ -56,9 +56,38 @@ if [ "$PLUGIN_REMOVED" -eq 0 ]; then
     echo "  ℹ No plugin files found to remove (may already be removed)"
 fi
 
+# Remove subscribe URLs from podkop config
+echo ""
+echo "Step 2: Cleaning subscribe URLs from /etc/config/podkop..."
+
+UCI_CLEANED=0
+
+# Get all podkop sections and remove subscribe_url options
+if command -v uci >/dev/null 2>&1 && [ -f /etc/config/podkop ]; then
+    # Find all options with subscribe_url or subscribe_url_outbound and delete them
+    for key in $(uci show podkop 2>/dev/null | grep -E "\.subscribe_url=|\.subscribe_url_outbound=" | cut -d'=' -f1); do
+        # key = podkop.gg.subscribe_url
+        if [ -n "$key" ]; then
+            uci delete "$key" 2>/dev/null && {
+                echo "  ✓ Removed: $key"
+                UCI_CLEANED=1
+            }
+        fi
+    done
+
+    if [ "$UCI_CLEANED" -eq 1 ]; then
+        uci commit podkop 2>/dev/null
+        echo "  ✓ Changes committed to /etc/config/podkop"
+    else
+        echo "  ℹ No subscribe URLs found in config"
+    fi
+else
+    echo "  ℹ UCI not available or podkop config not found"
+fi
+
 # Restore original section.js
 echo ""
-echo "Step 2: Restoring original Podkop section.js..."
+echo "Step 3: Restoring original Podkop section.js..."
 
 RESTORED=0
 
@@ -122,7 +151,7 @@ if [ "$RESTORED" -eq 0 ]; then
 fi
 
 echo ""
-echo "Step 3: Restarting uhttpd..."
+echo "Step 4: Restarting uhttpd..."
 /etc/init.d/uhttpd restart >/dev/null 2>&1 || true
 
 echo ""
@@ -135,6 +164,7 @@ fi
 echo "=========================================="
 echo ""
 echo "✓ Plugin files have been removed."
+echo "✓ Subscribe URLs have been cleaned from config."
 echo "✓ Podkop and its dependencies have NOT been removed."
 echo ""
 echo "Please clear your browser cache (Ctrl+F5) and reload LuCI."
