@@ -9,13 +9,13 @@
 ## Быстрая установка
 
 ```bash
-sh <(wget -O - https://raw.githubusercontent.com/artemscine/luci-podkop-subscribe/main/install.sh)
+sh <(wget -O - https://raw.githubusercontent.com/mr-Abdrahimov/luci-podkop-subscribe/main/install.sh)
 ```
 
 ## Удаление
 
 ```bash
-sh <(wget -O - https://raw.githubusercontent.com/artemscine/luci-podkop-subscribe/main/uninstall.sh)
+sh <(wget -O - https://raw.githubusercontent.com/mr-Abdrahimov/luci-podkop-subscribe/main/uninstall.sh)
 ```
 
 ## Описание
