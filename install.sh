@@ -3,7 +3,7 @@
 
 set -e
 
-REPO_URL="https://raw.githubusercontent.com/artemscine/luci-podkop-subscribe/main"
+REPO_URL="https://raw.githubusercontent.com/mr-Abdrahimov/luci-podkop-subscribe/main"
 BASE_URL="${REPO_URL}/files"
 
 echo "=========================================="
