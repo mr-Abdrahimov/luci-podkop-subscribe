@@ -314,4 +314,4 @@ logread | grep xray | tail -10
 GPL-2.0
 
 ## Автор
-mr-Abdrahimov
+@mr-Abdrahimov @artemscine
